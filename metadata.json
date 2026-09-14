@@ -1,0 +1,6 @@
+{
+  "name": "macOS Code Studio",
+  "description": "A complete, production-quality, premium code editor and IDE with a native macOS visual identity.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
