@@ -43,9 +43,17 @@ import { SettingsModal } from './components/Settings/SettingsModal';
 import { ProjectPickerModal } from './components/Project/ProjectPickerModal';
 import { MobileCodingBar } from './components/MobileToolbar/MobileCodingBar';
 import { LivePreviewModal } from './components/Preview/LivePreviewModal';
+import { AuthModal } from './components/Auth/AuthModal';
+import { authApi, projectsApi, AuthUser } from './services/api';
+import { syncEngine, SyncStatus } from './services/syncEngine';
 import { Wifi, Battery, Search as SearchIcon, Command } from 'lucide-react';
 
 export default function App() {
+  // Auth & Cloud Sync State
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>('local-only');
+
   // Project State
   const [projects, setProjects] = useState<Project[]>([DEFAULT_DEMO_PROJECT]);
   const [currentProject, setCurrentProject] = useState<Project>(DEFAULT_DEMO_PROJECT);
@@ -110,12 +118,32 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Initialize App from IndexedDB
+  // Subscribe to sync engine status
+  useEffect(() => {
+    const unsub = syncEngine.subscribe((status) => {
+      setSyncStatus(status);
+    });
+    return unsub;
+  }, []);
+
+  // Initialize App from IndexedDB and PostgreSQL
   useEffect(() => {
     async function init() {
+      // 1. Check existing authentication session
+      try {
+        const user = await authApi.getMe();
+        if (user) {
+          setCurrentUser(user);
+        }
+      } catch (err) {
+        console.warn('No active auth session or API unavailable:', err);
+      }
+
+      // 2. Load settings from local storage / API
       const loadedSettings = await storageService.getSettings();
       setSettings(loadedSettings);
 
+      // 3. Load local projects
       const loadedProjects = await storageService.getAllProjects();
       if (loadedProjects && loadedProjects.length > 0) {
         setProjects(loadedProjects);
@@ -147,6 +175,9 @@ export default function App() {
           setTabs([initialTab]);
           setActiveTabId(initialTab.id);
         }
+
+        // Trigger background sync to PostgreSQL if auth is active
+        syncEngine.queueSync(activeProj, activeProj.rootFiles);
       }
     }
     init();
@@ -654,6 +685,9 @@ export default function App() {
           return next;
         });
         setStagedFileIds(new Set());
+
+        // Queue PostgreSQL synchronization
+        syncEngine.queueSync(updated, updated.rootFiles);
       }
     },
     [currentProject.id, gitChanges, fileContents]
@@ -709,25 +743,23 @@ export default function App() {
             },
           ]);
         } else {
-          // Python or other sandbox
-          setTimeout(() => {
-            const elapsed = (performance.now() - startTime).toFixed(1);
-            setRunOutput((prev) => [
-              ...prev,
-              {
-                type: 'stdout',
-                text: `Executing Python 3 AST: parsed ${code.split('\n').length} lines successfully.`,
-                time: new Date().toLocaleTimeString(),
-              },
-              {
-                type: 'system',
-                text: `[process completed] exit code 0 (${elapsed}ms)`,
-                time: new Date().toLocaleTimeString(),
-              },
-            ]);
-            setIsRunning(false);
-          }, 300);
-          return;
+          // Truthful environment reporting for non-JavaScript runtimes
+          const elapsed = (performance.now() - startTime).toFixed(1);
+          setRunOutput((prev) => [
+            ...prev,
+            {
+              type: 'stderr',
+              text: `Runtime Notice: Native '${env}' execution requires a host interpreter binary.\n` +
+                `The browser sandbox safely executes JavaScript/TypeScript via V8.\n` +
+                `To run Python/Go/Rust code, use the integrated terminal or export your project.`,
+              time: new Date().toLocaleTimeString(),
+            },
+            {
+              type: 'system',
+              text: `[process exited with code 126 (host execution restricted)] (${elapsed}ms)`,
+              time: new Date().toLocaleTimeString(),
+            },
+          ]);
         }
       } catch (err: any) {
         setRunOutput((prev) => [

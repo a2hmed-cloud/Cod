@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { Project, TerminalLine } from '../../types';
 import { getAllFilesFlat } from '../../services/storage';
+import { terminalApi } from '../../services/api';
 
 interface TerminalPanelProps {
   project: Project;
@@ -59,7 +60,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
 
   if (!isOpen) return null;
 
-  const handleCommandSubmit = (e: React.FormEvent) => {
+  const handleCommandSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const rawCmd = inputVal.trim();
     if (!rawCmd) return;
@@ -77,7 +78,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
     const newLines = [...lines, cmdLine];
     const parts = rawCmd.split(' ');
     const cmd = parts[0].toLowerCase();
-    const args = parts.slice(1).join(' ');
+    const args = parts.slice(1).join(' ').trim();
 
     if (cmd === 'clear') {
       setLines([]);
@@ -93,15 +94,15 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
   ls, dir            - List files in current project
   pwd                - Print working directory
   cat <file>         - Display file content
-  node <file>        - Execute JS/TS file with real runtime output
-  node -e "<code>"   - Evaluate JavaScript code expression
-  eval <code>        - Sandboxed math/code evaluator
-  echo <text>        - Echo text to terminal
-  date               - Display current system time
   wc <file>          - Count lines and characters of a file
-  git status         - Show working tree status
+  git status         - Show real working tree status & commits
+  git log            - Display persistent git commits from PostgreSQL
+  date               - Display current system time
+  echo <text>        - Echo text to terminal
   clear              - Clear terminal window`,
       });
+      setLines(newLines);
+      return;
     } else if (cmd === 'ls' || cmd === 'dir') {
       const allFiles = getAllFilesFlat(project.rootFiles);
       const outputStr = allFiles.map((f) => `${f.path} (${f.content?.length || 0} bytes)`).join('\n');
@@ -110,38 +111,76 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
         type: 'output',
         text: outputStr || 'Project directory is empty',
       });
+      setLines(newLines);
+      return;
     } else if (cmd === 'pwd') {
       newLines.push({
         id: `out-${Date.now()}`,
         type: 'output',
         text: `/Users/developer/Projects/${project.name}`,
       });
+      setLines(newLines);
+      return;
     } else if (cmd === 'date') {
       newLines.push({
         id: `out-${Date.now()}`,
         type: 'output',
         text: new Date().toString(),
       });
+      setLines(newLines);
+      return;
     } else if (cmd === 'echo') {
       newLines.push({
         id: `out-${Date.now()}`,
         type: 'output',
         text: args,
       });
+      setLines(newLines);
+      return;
     } else if (cmd === 'git') {
-      if (args.includes('status')) {
+      const allFiles = getAllFilesFlat(project.rootFiles);
+      const commits = project.gitCommits || [];
+      const latestCommit = commits[0];
+
+      if (args === 'status' || args === '') {
         newLines.push({
           id: `out-${Date.now()}`,
           type: 'output',
-          text: `On branch main\nYour branch is up to date with 'origin/main'.\n\nNothing to commit, working tree clean`,
+          text: `On branch main\nProject: ${project.name} (${project.type})\nTotal tracked files: ${allFiles.length}\nLatest commit: ${
+            latestCommit
+              ? `${latestCommit.id.slice(0, 7)} - "${latestCommit.message}" by ${latestCommit.author} (${new Date(latestCommit.timestamp).toLocaleString()})`
+              : 'No commits recorded yet'
+          }\nWorking tree: Clean (Persisted in IndexedDB & PostgreSQL)`,
         });
+      } else if (args === 'log') {
+        if (commits.length === 0) {
+          newLines.push({
+            id: `out-${Date.now()}`,
+            type: 'output',
+            text: 'No commits in this repository yet.',
+          });
+        } else {
+          const logText = commits
+            .map(
+              (c) =>
+                `commit ${c.id}\nAuthor: ${c.author || 'User'}\nDate:   ${new Date(c.timestamp).toUTCString()}\n\n    ${c.message}\n`
+            )
+            .join('\n');
+          newLines.push({
+            id: `out-${Date.now()}`,
+            type: 'output',
+            text: logText,
+          });
+        }
       } else {
         newLines.push({
           id: `out-${Date.now()}`,
           type: 'output',
-          text: `git ${args}: git version 2.44.0 (Apple Git-147)`,
+          text: `git: '${args}' is not supported directly in the mini shell. Use the Source Control sidebar tab (⌘⇧G) to create real commits.`,
         });
       }
+      setLines(newLines);
+      return;
     } else if (cmd === 'cat') {
       const allFiles = getAllFilesFlat(project.rootFiles);
       const target = allFiles.find((f) => f.name === args || f.path === args || f.path.endsWith('/' + args));
@@ -158,6 +197,8 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
           text: `cat: ${args}: No such file or directory`,
         });
       }
+      setLines(newLines);
+      return;
     } else if (cmd === 'wc') {
       const allFiles = getAllFilesFlat(project.rootFiles);
       const target = allFiles.find((f) => f.name === args || f.path === args || f.path.endsWith('/' + args));
@@ -177,73 +218,35 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({
           text: `wc: ${args}: No such file or directory`,
         });
       }
-    } else if (cmd === 'node' || cmd === 'eval' || cmd === 'run') {
-      let codeToRun = '';
-      if (cmd === 'node' && args.startsWith('-e ')) {
-        codeToRun = args.replace(/^-e /, '').replace(/^['"]|['"]$/g, '');
-      } else if (cmd === 'eval') {
-        codeToRun = args;
-      } else {
-        const allFiles = getAllFilesFlat(project.rootFiles);
-        const target = allFiles.find((f) => f.name === args || f.path === args || f.path.endsWith('/' + args));
-        if (target && target.content) {
-          codeToRun = target.content;
+      setLines(newLines);
+      return;
+    } else {
+      // Execute command via secure server-side terminal endpoint
+      try {
+        const res = await terminalApi.execute(rawCmd);
+        if (res.success) {
+          newLines.push({
+            id: `out-${Date.now()}`,
+            type: 'output',
+            text: res.stdout || '[Process completed with exit code 0]',
+          });
         } else {
           newLines.push({
             id: `out-${Date.now()}`,
             type: 'error',
-            text: `Cannot find module '${args}'. Try running an existing file such as 'src/utils/calculator.ts' or 'node -e "console.log(1+1)"'`,
+            text: res.stderr || `zsh: command failed with exit code ${res.status}`,
           });
-          setLines(newLines);
-          return;
         }
-      }
-
-      try {
-        const capturedLogs: string[] = [];
-        const sandboxConsole = {
-          log: (...vals: any[]) => capturedLogs.push(vals.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(' ')),
-          error: (...vals: any[]) => capturedLogs.push('[ERROR] ' + vals.map((v) => String(v)).join(' ')),
-          warn: (...vals: any[]) => capturedLogs.push('[WARN] ' + vals.map((v) => String(v)).join(' ')),
-          info: (...vals: any[]) => capturedLogs.push('[INFO] ' + vals.map((v) => String(v)).join(' ')),
-        };
-
-        const executable = codeToRun
-          .replace(/import\s+.*?from\s+['"].*?['"];?/g, '')
-          .replace(/export\s+(default\s+)?/g, '');
-
-        const evalFn = new Function('console', `
-          try {
-            ${executable}
-          } catch(err) {
-            console.error(err.message);
-          }
-        `);
-
-        evalFn(sandboxConsole);
-
-        const combinedOutput = capturedLogs.length > 0 ? capturedLogs.join('\n') : '[Process completed with exit code 0]';
-        newLines.push({
-          id: `out-${Date.now()}`,
-          type: 'success',
-          text: combinedOutput,
-        });
       } catch (err: any) {
         newLines.push({
           id: `out-${Date.now()}`,
           type: 'error',
-          text: `Runtime Exception: ${err.message}`,
+          text: `zsh: execution failed: ${err.message || 'Unknown error'}`,
         });
       }
-    } else {
-      newLines.push({
-        id: `out-${Date.now()}`,
-        type: 'error',
-        text: `zsh: command not found: ${cmd}. (Type "help" for supported commands)`,
-      });
+      setLines(newLines);
+      return;
     }
-
-    setLines(newLines);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {

@@ -14,9 +14,15 @@ import {
   Download,
   Maximize2,
   Minimize2,
-  GitBranch
+  GitBranch,
+  User,
+  Database,
+  CloudCheck,
+  CloudOff
 } from 'lucide-react';
 import { AppSettings, Project } from '../../types';
+import { AuthUser } from '../../services/api';
+import { SyncStatus } from '../../services/syncEngine';
 
 interface WindowChromeProps {
   project: Project;
@@ -37,6 +43,9 @@ interface WindowChromeProps {
   onToggleWindowMode: () => void;
   onCloseWindow: () => void;
   onMinimizeWindow: () => void;
+  currentUser?: AuthUser | null;
+  onOpenAuth?: () => void;
+  syncStatus?: SyncStatus;
 }
 
 export const WindowChrome: React.FC<WindowChromeProps> = ({
@@ -58,6 +67,9 @@ export const WindowChrome: React.FC<WindowChromeProps> = ({
   onToggleWindowMode,
   onCloseWindow,
   onMinimizeWindow,
+  currentUser,
+  onOpenAuth,
+  syncStatus = 'local-only',
 }) => {
   const [trafficHovered, setTrafficHovered] = useState(false);
   const [projectDropdownOpen, setProjectDropdownOpen] = useState(false);
@@ -380,6 +392,75 @@ export const WindowChrome: React.FC<WindowChromeProps> = ({
           }`}
         >
           <Settings size={15} />
+        </button>
+
+        <div className={`h-4 w-px mx-0.5 ${isLight ? 'bg-black/10' : 'bg-white/10'}`} />
+
+        {/* Cloud Sync Status Indicator */}
+        <button
+          id="btn-cloud-sync-status"
+          onClick={onOpenAuth}
+          title={`Sync Status: ${syncStatus.toUpperCase()} (Click to open Database & Sync panel)`}
+          className={`flex items-center space-x-1 px-2 py-1 rounded-md text-[11px] font-medium transition-all ${
+            isLight
+              ? 'hover:bg-black/5 text-black/70'
+              : 'hover:bg-white/5 text-white/70'
+          }`}
+        >
+          <span
+            className={`w-1.5 h-1.5 rounded-full ${
+              syncStatus === 'synced'
+                ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.7)]'
+                : syncStatus === 'syncing'
+                  ? 'bg-[#007aff] animate-ping'
+                  : syncStatus === 'offline'
+                    ? 'bg-amber-500'
+                    : syncStatus === 'error'
+                      ? 'bg-red-500'
+                      : 'bg-zinc-400'
+            }`}
+          />
+          <span className="hidden xl:inline capitalize">
+            {syncStatus === 'synced'
+              ? 'Postgres Synced'
+              : syncStatus === 'syncing'
+                ? 'Syncing...'
+                : syncStatus === 'offline'
+                  ? 'Offline'
+                  : syncStatus === 'error'
+                    ? 'Sync Error'
+                    : 'Local DB'}
+          </span>
+        </button>
+
+        {/* Account / User Profile Button */}
+        <button
+          id="btn-user-account"
+          onClick={onOpenAuth}
+          title={currentUser ? `Signed in as ${currentUser.name} (${currentUser.email})` : 'Sign In / Register Account'}
+          className={`flex items-center space-x-1.5 px-2 py-1 rounded-md text-[11px] font-medium transition-all ${
+            currentUser
+              ? isLight
+                ? 'bg-[#007aff]/10 text-[#007aff] hover:bg-[#007aff]/15'
+                : 'bg-[#007aff]/20 text-[#5dd8ff] hover:bg-[#007aff]/30'
+              : isLight
+                ? 'bg-black/5 hover:bg-black/10 text-black/70'
+                : 'bg-white/10 hover:bg-white/15 text-white/80'
+          }`}
+        >
+          {currentUser ? (
+            <>
+              <span className="w-4 h-4 rounded-full bg-[#007aff] text-white text-[9px] font-bold flex items-center justify-center">
+                {currentUser.name.charAt(0).toUpperCase()}
+              </span>
+              <span className="hidden md:inline max-w-[80px] truncate">{currentUser.name}</span>
+            </>
+          ) : (
+            <>
+              <User size={13} />
+              <span className="hidden md:inline">Sign In</span>
+            </>
+          )}
         </button>
       </div>
     </header>
